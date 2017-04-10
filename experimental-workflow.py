@@ -39,6 +39,7 @@ data = {
 # Warning: Neural networks often require a combination of 1 or 3 or 4 channels.
 # Users should specify ALL desired channels here. In downstream modules, users can duplicate channels if needed.
 channels = [0,5,6]
+number_of_channels = 2
 
 image_size = 28
 
@@ -119,7 +120,6 @@ training_x = numpy.load(os.path.join(directory, "training_x.npy"))
 
 training_y = numpy.load(os.path.join(directory, "training_y.npy"))
 
-training_x = training_x[:,:,:,0:2]
 print(training_x.shape)
 
 # Use this function to normalize signal intensities across images
@@ -134,11 +134,8 @@ validation_x = numpy.load(os.path.join(directory, "validation_x.npy"))
 
 validation_y = numpy.load(os.path.join(directory, "validation_y.npy"))
 
-validation_x = validation_x[:,:,:,0:2]
-
 # Use this function to normalize signal intensities across images
 validation_x, pix_min, pix_max = min_max_norm(validation_x, pix_min, pix_max)
-
 
 validation_generator = data_generator(validation_x, validation_y, 32)
 
@@ -148,37 +145,11 @@ testing_x = numpy.load(os.path.join(directory, "testing_x.npy"))
 
 testing_y = numpy.load(os.path.join(directory, "testing_y.npy"))
 
-# If using networks (VGG19) that needs 3 channels RGB not single-channel grayscale:
-# Examples:
-# testing_xx = numpy.concatenate((testing_x,testing_x,testing_x), axis=3)
-# testing_xx = numpy.concatenate((testing_x,numpy.expand_dims(testing_x[:,:,:,0], axis = 3)), axis=3)
-# testing_xx = numpy.concatenate((testing_x,testing_x), axis=3)
-
-
-# In[13]:
-
 # Use this function to normalize signal intensities across images
 testing_x, pix_min, pix_max = min_max_norm(testing_x, pix_min, pix_max)
 
-
-# In[14]:
-
-test_generator = keras.preprocessing.image.ImageDataGenerator() #rotation_range = 180, horizontal_flip = True, vertical_flip = True)
-
-test_generator = test_generator.flow(
-    x = testing_x, # or testing_xx
-    y = testing_y,
-    batch_size=32
-)
-
-# If using PNG from folders:
-
-# test_generator = test_generator.flow_from_directory(
-#     batch_size=1,
-#     color_mode="rgb",
-#     directory="/home/minh-doan/Cell_cycle/temp_processed/Testing/"
-# )
-
+test_generator = data_generator(testing_x, testing_y, 32)
+ 
 
 # # Construct convolutional neural network:
 
