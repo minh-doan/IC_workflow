@@ -28,12 +28,16 @@ import random
 
 # In[3]:
 
-directory = "/data1/Minh/IFC/DeepLearning/BFDFDAPI_digested_except113_190_207_209"
+
+input_directory = "/data1/Minh/IFC/DeepLearning/Allchannels_digested_except113_190_207_209"
+
+output_directory = "/home/jccaicedo/Leukemia_DeepLearning/BFDFDAPI_test209_190pres_heavyweights"
+
 
 data = {
     "normal": '/data1/Minh/IFC/DeepLearning/cif/normal/',
     
-  "leukemic": '/data1/Minh/IFC/DeepLearning/cif/abnormal/'
+  "leukemic": '/data2/Minh/IFC/DeepLearning/cif/abnormal/'
 }
 
 # Warning: Neural networks often require a combination of 1 or 3 or 4 channels.
@@ -51,10 +55,8 @@ split = {
 
 classes = len(data.keys())
 
-
 # Heavy weights
 class_weights = {0: 1.0300000712336965, 1: 34.333254184969725}
-
 
 
 # # Load data and labels:
@@ -73,12 +75,30 @@ def min_max_norm(x, minimum=None, maximum=None):
 ### DATA QUEUEING
 
 def data_generator(input_x, input_y, batch_size):
+    num_examples, num_labels = input_y.shape
+    label_indices = []
+    for i in range(num_labels):
+        indices = [j for j in range(num_examples) if input_y[j,i] > 0]
+        label_indices.append(indices)
+        print("Label",i,":",len(indices),"examples")
+    samples_per_label = int(batch_size / num_labels)
+
     def generator():
         while True:
-            indices = sorted( random.sample(range(input_x.shape[0]), batch_size) )
-            x_sample = input_x[indices, ...]
-            y_sample = input_y[indices, ...]
-            yield (x_sample, y_sample)
+            x_samples = []
+            y_samples = []
+            for i in range(num_labels):
+                random.shuffle(label_indices[i])
+                indices = label_indices[i][0:samples_per_label]
+                x_samples.append( input_x[indices, ...] )
+                y_samples.append( input_y[indices, ...] )
+            x_samples = numpy.concatenate( x_samples )
+            y_samples = numpy.concatenate( y_samples )
+            batch_indices = range(x_samples.shape[0])
+            random.shuffle(batch_indices)
+            x_samples = x_samples[batch_indices, ...]
+            y_samples = y_samples[batch_indices, ...]
+            yield (x_samples, y_samples)
     return generator()
 
 
@@ -116,40 +136,60 @@ def data_generator(input_x, input_y, batch_size, session, scope="training"):
 
 # In[6]:
 
-training_x = numpy.load(os.path.join(directory, "training_x.npy"))
+print("Loading training data")
 
-training_y = numpy.load(os.path.join(directory, "training_y.npy"))
+training_x = numpy.load(os.path.join(input_directory, "training_x.npy"))
 
-print(training_x.shape)
+training_y = numpy.load(os.path.join(input_directory, "training_y.npy"))
 
 # Use this function to normalize signal intensities across images
 training_x, pix_min, pix_max = min_max_norm(training_x)
 
 training_generator = data_generator(training_x, training_y, 32) 
 
+print(training_x.shape, training_y.shape)
+
 
 # In[9]:
 
-validation_x = numpy.load(os.path.join(directory, "validation_x.npy"))
+print("Loading validation data")
 
-validation_y = numpy.load(os.path.join(directory, "validation_y.npy"))
+validation_x = numpy.load(os.path.join(input_directory, "validation_x.npy"))
+
+validation_y = numpy.load(os.path.join(input_directory, "validation_y.npy"))
 
 # Use this function to normalize signal intensities across images
-validation_x, pix_min, pix_max = min_max_norm(validation_x, pix_min, pix_max)
+validation_x, _, _ = min_max_norm(validation_x, pix_min, pix_max)
 
-validation_generator = data_generator(validation_x, validation_y, 32)
+validation_generator = keras.preprocessing.image.ImageDataGenerator()
+validation_generator = validation_generator.flow(
+    x = validation_x,
+    y = validation_y,
+    batch_size=32
+)
+
+print(validation_x.shape)
 
 # In[12]:
 
-testing_x = numpy.load(os.path.join(directory, "testing_x.npy"))
+print("Loading test data")
 
-testing_y = numpy.load(os.path.join(directory, "testing_y.npy"))
+testing_x = numpy.load(os.path.join(input_directory, "testing_x.npy"))
+
+testing_y = numpy.load(os.path.join(input_directory, "testing_y.npy"))
 
 # Use this function to normalize signal intensities across images
-testing_x, pix_min, pix_max = min_max_norm(testing_x, pix_min, pix_max)
+testing_x, _, _ = min_max_norm(testing_x, pix_min, pix_max)
 
-test_generator = data_generator(testing_x, testing_y, 32)
- 
+test_generator = keras.preprocessing.image.ImageDataGenerator()
+test_generator = test_generator.flow(
+    x = test_x,
+    y = test_y,
+    batch_size=32
+)
+
+
+print(testing_x.shape)
 
 # # Construct convolutional neural network:
 
@@ -162,42 +202,47 @@ x = keras.layers.Input(shape)
 
 # In[16]:
 
-options = {"activation": "relu", "kernel_size": (3, 3), "padding": "same"}
+options = {"activation": None, "kernel_size": (3, 3), "padding": "same"}
 
 # Block 1:
 
 y = keras.layers.Conv2D(32, **options)(x)
+y = keras.layers.normalization.BatchNormalization()(y)
+y = keras.layers.Activation("relu")(y)
+
 y = keras.layers.Conv2D(32, **options)(y)
+y = keras.layers.Activation("relu")(y)
+y = keras.layers.normalization.BatchNormalization()(y)
 
 y = keras.layers.MaxPooling2D(pool_size=2, strides=None, padding='same')(y)
 
 # Block 2:
 y = keras.layers.Conv2D(64, **options)(y)
+y = keras.layers.Activation("relu")(y)
+y = keras.layers.normalization.BatchNormalization()(y)
+
 y = keras.layers.Conv2D(64, **options)(y)
+y = keras.layers.Activation("relu")(y)
+y = keras.layers.normalization.BatchNormalization()(y)
 
 y = keras.layers.MaxPooling2D(pool_size=2, strides=None, padding='same')(y)
 
 # Block 3:
 y = keras.layers.Conv2D(128, **options)(y)
+y = keras.layers.Activation("relu")(y)
+y = keras.layers.normalization.BatchNormalization()(y)
+
 y = keras.layers.Conv2D(128, **options)(y)
+y = keras.layers.Activation("relu")(y)
+y = keras.layers.normalization.BatchNormalization()(y)
 
 y = keras.layers.MaxPooling2D(pool_size=2, strides=None, padding='same')(y)
 
 # Block 4:
-# y = keras.layers.Conv2D(256, **options)(y)
-# y = keras.layers.Conv2D(256, **options)(y)
-
-# y = keras.layers.MaxPooling2D(pool_size=2, strides=None, padding='same')(y)
-
-# Block 5:
 y = keras.layers.Flatten()(y)
-
 intermediate_layer = keras.layers.Dense(1024, activation="relu")(y) # This intermediate_layer will be used for embeddings
-
 y = keras.layers.Dropout(0.5)(intermediate_layer)
-
 y = keras.layers.Dense(classes)(y)
-
 y = keras.layers.Activation("softmax")(y)
 
 
@@ -228,31 +273,26 @@ model.compile(
 
 # In[ ]:
 
-# New output directory:
-directory = "/home/jccaicedo/Leukemia_DeepLearning/BFDFDAPI_test209_190pres_heavyweights"
-if not os.path.exists(directory):
-    os.makedirs(directory)
+# New output output_directory:
+if not os.path.exists(output_directory):
+    os.makedirs(output_directory)
 
 
 # In[ ]:
 
-csv_logger = keras.callbacks.CSVLogger(os.path.join(directory, 'training.csv') )
-
+csv_logger = keras.callbacks.CSVLogger(os.path.join(output_directory, 'training.csv') )
 early_stopping = keras.callbacks.EarlyStopping(patience=64)
 
 # checkpoint
-filepath = os.path.join(directory, "weights.best.hdf5")
+filepath = os.path.join(output_directory, "weights.best.hdf5")
 checkpoint = keras.callbacks.ModelCheckpoint(filepath, monitor='val_categorical_accuracy', verbose=1, save_best_only=True, mode='max')
 
 
 # In[ ]:
 
 configuration = tensorflow.ConfigProto()
-
 configuration.gpu_options.allow_growth = True
-
 session = tensorflow.Session(config=configuration)
-
 keras.backend.set_session(session)
 
 
@@ -264,7 +304,7 @@ with tensorflow.device("/gpu:0"):
             #checkpoint,
             csv_logger
         ],
-        epochs=15,
+        epochs=5,
         class_weight = class_weights,
         generator=training_generator,
         max_q_size=256,
@@ -283,100 +323,6 @@ model.evaluate_generator(
     steps=256
 )
 
-
-# In[ ]:
-
-testing_x = numpy.load("/home/minh-doan/Leukemia_DeepLearning/BFDFDAPI_digested_test209pres/testing_x.npy")
-
-testing_y = numpy.load("/home/minh-doan/Leukemia_DeepLearning/BFDFDAPI_digested_test209pres/testing_y.npy")
-
-# If using networks (VGG19) that needs 3 channels RGB not single-channel grayscale:
-# Examples:
-# testing_xx = numpy.concatenate((testing_x,testing_x,testing_x), axis=3)
-# testing_xx = numpy.concatenate((testing_x,numpy.expand_dims(testing_x[:,:,:,0], axis = 3)), axis=3)
-# testing_xx = numpy.concatenate((testing_x,testing_x), axis=3)
-
-
-# In[ ]:
-
-# Use this function to normalize signal intensities across images
-testing_x, pix_min, pix_max = min_max_norm(testing_x, pix_min, pix_max)
-
-
-# In[ ]:
-
-test_generator = keras.preprocessing.image.ImageDataGenerator() #rotation_range = 180, horizontal_flip = True, vertical_flip = True)
-
-test_generator = test_generator.flow(
-    x = testing_x, # or testing_xx
-    y = testing_y,
-    batch_size=32
-)
-
-# If using PNG from folders:
-
-# test_generator = test_generator.flow_from_directory(
-#     batch_size=1,
-#     color_mode="rgb",
-#     directory="/home/minh-doan/Cell_cycle/temp_processed/Testing/"
-# )
-
-
-# In[ ]:
-
-model.evaluate_generator(
-    generator=test_generator, 
-    steps=256
-)
-
-
-# In[ ]:
-
-testing_x = numpy.load("/home/minh-doan/Leukemia_DeepLearning/BFDFDAPI_digested_test190pres/testing_x.npy")
-
-testing_y = numpy.load("/home/minh-doan/Leukemia_DeepLearning/BFDFDAPI_digested_test190pres/testing_y.npy")
-
-# If using networks (VGG19) that needs 3 channels RGB not single-channel grayscale:
-# Examples:
-# testing_xx = numpy.concatenate((testing_x,testing_x,testing_x), axis=3)
-# testing_xx = numpy.concatenate((testing_x,numpy.expand_dims(testing_x[:,:,:,0], axis = 3)), axis=3)
-# testing_xx = numpy.concatenate((testing_x,testing_x), axis=3)
-
-
-# In[ ]:
-
-# Use this function to normalize signal intensities across images
-testing_x, pix_min, pix_max = min_max_norm(testing_x, pix_min, pix_max)
-
-
-# In[ ]:
-
-test_generator = keras.preprocessing.image.ImageDataGenerator() #rotation_range = 180, horizontal_flip = True, vertical_flip = True)
-
-test_generator = test_generator.flow(
-    x = testing_x, # or testing_xx
-    y = testing_y,
-    batch_size=32
-)
-
-# If using PNG from folders:
-
-# test_generator = test_generator.flow_from_directory(
-#     batch_size=1,
-#     color_mode="rgb",
-#     directory="/home/minh-doan/Cell_cycle/temp_processed/Testing/"
-# )
-
-
-# In[ ]:
-
-model.evaluate_generator(
-    generator=test_generator, 
-    steps=256
-)
-
-
-# In[ ]:
 
 session.close()
 
