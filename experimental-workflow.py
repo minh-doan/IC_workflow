@@ -29,7 +29,7 @@ import random
 # In[3]:
 
 
-input_directory = "/data1/Minh/IFC/DeepLearning/Allchannels_digested_except113_190_207_209"
+input_directory = "/data1/Minh/Leukemia/DeepLearning/Allchannels_digested_except113_190_207_209/"
 
 output_directory = "/home/jccaicedo/Leukemia_DeepLearning/BFDFDAPI_test209_190pres_heavyweights"
 
@@ -74,7 +74,7 @@ def min_max_norm(x, minimum=None, maximum=None):
 
 ### DATA QUEUEING
 
-def data_generator(input_x, input_y, batch_size):
+def training_data_generator(input_x, input_y, batch_size):
     num_examples, num_labels = input_y.shape
     label_indices = []
     for i in range(num_labels):
@@ -94,13 +94,28 @@ def data_generator(input_x, input_y, batch_size):
                 y_samples.append( input_y[indices, ...] )
             x_samples = numpy.concatenate( x_samples )
             y_samples = numpy.concatenate( y_samples )
-            batch_indices = range(x_samples.shape[0])
-            random.shuffle(batch_indices)
+            batch_indices = numpy.arange(x_samples.shape[0])
+            numpy.random.shuffle(batch_indices)
             x_samples = x_samples[batch_indices, ...]
             y_samples = y_samples[batch_indices, ...]
             yield (x_samples, y_samples)
     return generator()
 
+
+def prediction_data_generator(input_x, input_y, batch_size):
+    num_examples, num_labels = input_y.shape
+    steps = int(num_examples / batch_size)
+    def generator():
+        i = 0
+        while True:
+            start = i*batch_size
+            end = (i+1)*batch_size
+            x_sample = input_x[start:end, ...]
+            y_sample = input_y[start:end, ...]
+            yield (x_sample, y_sample)
+            i = i + 1 if i < steps else 0
+    print("Prediction steps:",steps)        
+    return generator(), steps
 
 '''
 #TODO: Prefill the queue
@@ -138,14 +153,14 @@ def data_generator(input_x, input_y, batch_size, session, scope="training"):
 
 print("Loading training data")
 
-training_x = numpy.load(os.path.join(input_directory, "training_x.npy"))
+training_x = numpy.load(os.path.join(input_directory, "augmented_training_x.npy"))
 
-training_y = numpy.load(os.path.join(input_directory, "training_y.npy"))
+training_y = numpy.load(os.path.join(input_directory, "augmented_training_y.npy"))
 
 # Use this function to normalize signal intensities across images
 training_x, pix_min, pix_max = min_max_norm(training_x)
 
-training_generator = data_generator(training_x, training_y, 32) 
+training_generator = training_data_generator(training_x, training_y, 32) 
 
 print(training_x.shape, training_y.shape)
 
@@ -161,12 +176,7 @@ validation_y = numpy.load(os.path.join(input_directory, "validation_y.npy"))
 # Use this function to normalize signal intensities across images
 validation_x, _, _ = min_max_norm(validation_x, pix_min, pix_max)
 
-validation_generator = keras.preprocessing.image.ImageDataGenerator()
-validation_generator = validation_generator.flow(
-    x = validation_x,
-    y = validation_y,
-    batch_size=32
-)
+validation_generator, validation_steps = prediction_data_generator(validation_x, validation_y, 32)
 
 print(validation_x.shape)
 
@@ -181,13 +191,7 @@ testing_y = numpy.load(os.path.join(input_directory, "testing_y.npy"))
 # Use this function to normalize signal intensities across images
 testing_x, _, _ = min_max_norm(testing_x, pix_min, pix_max)
 
-test_generator = keras.preprocessing.image.ImageDataGenerator()
-test_generator = test_generator.flow(
-    x = test_x,
-    y = test_y,
-    batch_size=32
-)
-
+testing_generator, testing_steps = prediction_data_generator(testing_x, testing_y, 32)
 
 print(testing_x.shape)
 
@@ -307,10 +311,10 @@ with tensorflow.device("/gpu:0"):
         epochs=5,
         class_weight = class_weights,
         generator=training_generator,
-        max_q_size=256,
+        max_q_size=4096,
         steps_per_epoch=2000,
         validation_data=validation_generator,
-        validation_steps=2000
+        validation_steps=validation_steps
     )
 
 
@@ -320,7 +324,7 @@ with tensorflow.device("/gpu:0"):
 
 model.evaluate_generator(
     generator=test_generator, 
-    steps=256
+    steps=testing_steps
 )
 
 
