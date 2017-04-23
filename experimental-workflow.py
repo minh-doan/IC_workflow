@@ -63,13 +63,18 @@ class_weights = {0: 1.0300000712336965, 1: 34.333254184969725}
 
 # In[5]:
 
-# Use this function to normalize signal intensities across images
+# Use this function to rescale signal intensities across images
 def min_max_norm(x, minimum=None, maximum=None):
-    if minimum is None:
-        minimum = x.min()
-    if maximum is None:
-        maximum = x.max()
-    result = 100.0*( (numpy.ndarray.astype(x, numpy.float32) - minimum)/(maximum - minimum) )
+    channels = x.shape[-1]
+    if minimum is None and maximum is None:
+        minimum = []
+        maximum = []
+        for channel in range(channels):
+            minimum.append( x[..., channel].min() )
+            maximum.append( x[..., channel].max() )
+    result = numpy.zeros_like(x)
+    for ch in range(channels):
+        result[..., ch] = 100.0*( (numpy.ndarray.astype(x[..., ch], numpy.float32) - minimum[ch])/(maximum[ch] - minimum[ch]) )
     return (result, minimum, maximum)
 
 ### DATA QUEUEING
@@ -263,7 +268,7 @@ model.summary()
 
 loss = keras.losses.categorical_crossentropy
 
-optimizer = keras.optimizers.Adam(0.00001)
+optimizer = keras.optimizers.Adam(0.0001)
 
 model.compile(
     loss=loss, 
@@ -323,7 +328,7 @@ with tensorflow.device("/gpu:0"):
 # In[ ]:
 
 model.evaluate_generator(
-    generator=test_generator, 
+    generator=testing_generator, 
     steps=testing_steps
 )
 
